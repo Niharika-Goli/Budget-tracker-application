@@ -5,12 +5,17 @@ from flask import (
     url_for,
     flash,
     redirect,
-    Response
+    Response,
+    session
 )
 
 from flask_sqlalchemy import SQLAlchemy
 from datetime import date, datetime, date as dt_date
 from sqlalchemy import func
+from werkzeug.security import (
+    generate_password_hash,
+    check_password_hash
+)
 
 app = Flask(__name__)
 
@@ -22,15 +27,31 @@ app.config['SECRET_KEY'] = 'my-secret-key'
 db = SQLAlchemy(app)
 
 
-# MODEL
+# =========================
+# MODELS
+# =========================
+
 class Expense(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
 
-    description = db.Column(db.String(120), nullable=False)
+    id = db.Column(
+        db.Integer,
+        primary_key=True
+    )
 
-    Amount = db.Column(db.Float, nullable=False)
+    description = db.Column(
+        db.String(120),
+        nullable=False
+    )
 
-    Category = db.Column(db.String(120), nullable=False)
+    Amount = db.Column(
+        db.Float,
+        nullable=False
+    )
+
+    Category = db.Column(
+        db.String(120),
+        nullable=False
+    )
 
     Date = db.Column(
         db.Date,
@@ -39,12 +60,42 @@ class Expense(db.Model):
     )
 
 
+class User(db.Model):
+
+    id = db.Column(
+        db.Integer,
+        primary_key=True
+    )
+
+    username = db.Column(
+        db.String(100),
+        nullable=False
+    )
+
+    email = db.Column(
+        db.String(120),
+        unique=True,
+        nullable=False
+    )
+
+    password = db.Column(
+        db.String(200),
+        nullable=False
+    )
+
+
+# =========================
 # CREATE DATABASE
+# =========================
+
 with app.app_context():
     db.create_all()
 
 
+# =========================
 # CATEGORIES
+# =========================
+
 CATEGORIES = [
     'Food',
     'Transport',
@@ -56,7 +107,10 @@ CATEGORIES = [
 ]
 
 
+# =========================
 # HELPER FUNCTION
+# =========================
+
 def parse_date_or_none(s: str):
 
     if not s:
@@ -72,23 +126,46 @@ def parse_date_or_none(s: str):
         return None
 
 
+# =========================
 # HOME PAGE
+# =========================
+
 @app.route("/")
 def index():
 
-    # FILTER VALUES
-    start_str = (request.args.get("start") or "").strip()
+    # LOGIN PROTECTION
+    if "user_id" not in session:
 
-    end_str = (request.args.get("end") or "").strip()
+        flash(
+            "Please login first",
+            "error"
+        )
+
+        return redirect(
+            url_for("login")
+        )
+
+    # FILTER VALUES
+    start_str = (
+        request.args.get("start") or ""
+    ).strip()
+
+    end_str = (
+        request.args.get("end") or ""
+    ).strip()
 
     selected_category = (
         request.args.get("Category") or ""
     ).strip()
 
     # CONVERT TO DATE
-    start_date = parse_date_or_none(start_str)
+    start_date = parse_date_or_none(
+        start_str
+    )
 
-    end_date = parse_date_or_none(end_str)
+    end_date = parse_date_or_none(
+        end_str
+    )
 
     # VALIDATION
     if (
@@ -108,7 +185,7 @@ def index():
         start_str = ""
         end_str = ""
 
-    # MAIN QUERY
+    # QUERY
     q = Expense.query
 
     if start_date:
@@ -162,14 +239,16 @@ def index():
         Expense.Category
     ).all()
 
-    cat_labels = [c for c, _ in cat_rows]
+    cat_labels = [
+        c for c, _ in cat_rows
+    ]
 
     cat_values = [
         round(float(s or 0), 2)
         for _, s in cat_rows
     ]
 
-    # DAY CHART
+    # BAR CHART
     day_q = db.session.query(
         Expense.Date,
         func.sum(Expense.Amount)
@@ -233,9 +312,15 @@ def index():
     )
 
 
+# =========================
 # ADD EXPENSE
+# =========================
+
 @app.route("/add", methods=['POST'])
 def add():
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
     description = (
         request.form.get("description") or ""
@@ -253,7 +338,6 @@ def add():
         request.form.get("date") or ""
     ).strip()
 
-    # VALIDATION
     if (
         not description or
         not Amount_str or
@@ -269,10 +353,11 @@ def add():
             url_for("index")
         )
 
-    # AMOUNT VALIDATION
     try:
 
-        Amount = float(Amount_str)
+        Amount = float(
+            Amount_str
+        )
 
         if Amount <= 0:
             raise ValueError
@@ -280,7 +365,7 @@ def add():
     except ValueError:
 
         flash(
-            "Amount must be positive number",
+            "Amount must be positive",
             "error"
         )
 
@@ -288,7 +373,6 @@ def add():
             url_for("index")
         )
 
-    # DATE VALIDATION
     try:
 
         d = (
@@ -305,7 +389,6 @@ def add():
 
         d = date.today()
 
-    # SAVE
     e = Expense(
         description=description,
         Amount=Amount,
@@ -327,12 +410,18 @@ def add():
     )
 
 
+# =========================
 # DELETE
+# =========================
+
 @app.route(
     '/delete/<int:expense_id>',
     methods=['POST']
 )
 def delete(expense_id):
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
     e = Expense.query.get_or_404(
         expense_id
@@ -351,40 +440,120 @@ def delete(expense_id):
         url_for("index")
     )
 
-@app.route('/edit/<int:expense_id>',methods=['GET'])
+
+# =========================
+# EDIT GET
+# =========================
+
+@app.route(
+    '/edit/<int:expense_id>',
+    methods=['GET']
+)
 def edit(expense_id):
-    e = Expense.query.get_or_404(expense_id)
-    return render_template("edit.html",expense=e, categories=CATEGORIES, tday=dt_date.today().isoformat())
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    e = Expense.query.get_or_404(
+        expense_id
+    )
+
+    return render_template(
+        "edit.html",
+        expense=e,
+        categories=CATEGORIES,
+        tday=dt_date.today().isoformat()
+    )
 
 
-@app.route('/edit/<int:expense_id>',methods=['POST'])
+# =========================
+# EDIT POST
+# =========================
+
+@app.route(
+    '/edit/<int:expense_id>',
+    methods=['POST']
+)
 def edit_post(expense_id):
 
-    e = Expense.query.get_or_404(expense_id)
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
-    description = (request.form.get("description") or "").strip()
-    Amount_str = (request.form.get("Amount") or "").strip()
-    Category = (request.form.get("Category") or "").strip()
-    date_str = (request.form.get("Date") or "").strip()
+    e = Expense.query.get_or_404(
+        expense_id
+    )
 
-    if not description or not Amount_str or not Category:
-        flash("Please fill description, Amount, Category", "error")
-        return redirect(url_for("edit", expense_id=expense_id))
+    description = (
+        request.form.get("description") or ""
+    ).strip()
+
+    Amount_str = (
+        request.form.get("Amount") or ""
+    ).strip()
+
+    Category = (
+        request.form.get("Category") or ""
+    ).strip()
+
+    date_str = (
+        request.form.get("Date") or ""
+    ).strip()
+
+    if (
+        not description or
+        not Amount_str or
+        not Category
+    ):
+
+        flash(
+            "Please fill all fields",
+            "error"
+        )
+
+        return redirect(
+            url_for(
+                "edit",
+                expense_id=expense_id
+            )
+        )
 
     try:
-        Amount = float(Amount_str)
+
+        Amount = float(
+            Amount_str
+        )
 
         if Amount <= 0:
             raise ValueError
 
     except ValueError:
-        flash("Amount must be a positive number", "error")
-        return redirect(url_for("edit", expense_id=expense_id))
+
+        flash(
+            "Amount must be positive",
+            "error"
+        )
+
+        return redirect(
+            url_for(
+                "edit",
+                expense_id=expense_id
+            )
+        )
 
     try:
-        d = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else dt_date.today()
+
+        d = (
+            datetime.strptime(
+                date_str,
+                "%Y-%m-%d"
+            ).date()
+
+            if date_str
+            else dt_date.today()
+        )
 
     except ValueError:
+
         d = dt_date.today()
 
     e.description = description
@@ -394,16 +563,25 @@ def edit_post(expense_id):
 
     db.session.commit()
 
-    flash("Expense Updated", "success")
+    flash(
+        "Expense updated",
+        "success"
+    )
 
-    return redirect(url_for("index"))
+    return redirect(
+        url_for("index")
+    )
 
 
-
-
+# =========================
 # EXPORT CSV
+# =========================
+
 @app.route("/export.csv")
 def export_csv():
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
 
     start_str = (
         request.args.get("start") or ""
@@ -447,7 +625,6 @@ def export_csv():
         Expense.id
     ).all()
 
-    # CSV CONTENT
     lines = [
         "Date,Description,Category,Amount"
     ]
@@ -463,15 +640,7 @@ def export_csv():
 
     csv_data = "\n".join(lines)
 
-    # FILE NAME
-    fname_start = start_str or "all"
-
-    fname_end = end_str or "all"
-
-    filename = (
-        f"expenses_{fname_start}"
-        f"_to_{fname_end}.csv"
-    )
+    filename = "expenses.csv"
 
     return Response(
         csv_data,
@@ -485,8 +654,207 @@ def export_csv():
     )
 
 
+# =========================
+# LOGIN
+# =========================
+
+@app.route(
+    "/login",
+    methods=["GET", "POST"]
+)
+def login():
+
+    if request.method == "POST":
+
+        email = (
+            request.form.get("email") or ""
+        ).strip()
+
+        password = (
+            request.form.get("password") or ""
+        ).strip()
+
+        if not email or not password:
+
+            flash(
+                "Please fill all fields",
+                "error"
+            )
+
+            return redirect(
+                url_for("login")
+            )
+
+        user = User.query.filter_by(
+            email=email
+        ).first()
+
+        if not user:
+
+            flash(
+                "User not found",
+                "error"
+            )
+
+            return redirect(
+                url_for("login")
+            )
+
+        if not check_password_hash(
+            user.password,
+            password
+        ):
+
+            flash(
+                "Incorrect password",
+                "error"
+            )
+
+            return redirect(
+                url_for("login")
+            )
+
+        # SAVE SESSION
+        session["user_id"] = user.id
+        session["username"] = user.username
+
+        flash(
+            "Login successful",
+            "success"
+        )
+
+        return redirect(
+            url_for("index")
+        )
+
+    return render_template(
+        "login.html"
+    )
+
+
+# =========================
+# SIGNUP
+# =========================
+
+@app.route(
+    "/signup",
+    methods=["GET", "POST"]
+)
+def signup():
+
+    if request.method == "POST":
+
+        username = (
+            request.form.get("username") or ""
+        ).strip()
+
+        email = (
+            request.form.get("email") or ""
+        ).strip()
+
+        password = (
+            request.form.get("password") or ""
+        ).strip()
+
+        confirm_password = (
+            request.form.get("confirm_password") or ""
+        ).strip()
+
+        if (
+            not username or
+            not email or
+            not password or
+            not confirm_password
+        ):
+
+            flash(
+                "Please fill all fields",
+                "error"
+            )
+
+            return redirect(
+                url_for("signup")
+            )
+
+        if password != confirm_password:
+
+            flash(
+                "Passwords do not match",
+                "error"
+            )
+
+            return redirect(
+                url_for("signup")
+            )
+
+        existing_user = User.query.filter_by(
+            email=email
+        ).first()
+
+        if existing_user:
+
+            flash(
+                "Email already registered",
+                "error"
+            )
+
+            return redirect(
+                url_for("signup")
+            )
+
+        hashed_password = generate_password_hash(
+            password
+        )
+
+        new_user = User(
+            username=username,
+            email=email,
+            password=hashed_password
+        )
+
+        db.session.add(new_user)
+
+        db.session.commit()
+
+        flash(
+            "Account created successfully",
+            "success"
+        )
+
+        return redirect(
+            url_for("login")
+        )
+
+    return render_template(
+        "signup.html"
+    )
+
+
+# =========================
+# LOGOUT
+# =========================
+
+@app.route("/logout")
+def logout():
+
+    session.clear()
+
+    flash(
+        "Logged out successfully",
+        "success"
+    )
+
+    return redirect(
+        url_for("login")
+    )
+
+
+# =========================
 # RUN APP
+# =========================
+
 if __name__ == "__main__":
+
     app.run(
         debug=True,
         port=4848
