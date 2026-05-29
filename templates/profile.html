@@ -103,7 +103,55 @@
 
       </div>
 
+      </div>
 
+
+      <!-- INCOME -->
+      <div class="mt-8 rounded-2xl bg-slate-800 border border-slate-700 p-5">
+
+        <p class="text-slate-400 text-sm mb-2">
+          Monthly Income
+        </p>
+
+        <h3 class="text-3xl font-bold text-emerald-400 mb-4">
+          ₹ {{ '%.2f'|format(user.monthly_income or 0) }}
+        </h3>
+
+        <form
+          method="POST"
+          action="{{ url_for('update_income') }}"
+          class="space-y-3"
+        >
+
+          <input
+            type="number"
+            step="0.01"
+            name="income"
+            placeholder="Enter Monthly Income"
+            class="w-full rounded-xl bg-slate-900 border border-slate-700 px-3 py-3"
+          >
+
+          <button
+            type="submit"
+            class="w-full rounded-xl bg-cyan-500 hover:bg-cyan-400 px-4 py-3 font-semibold text-slate-950"
+          >
+            Save Income
+          </button>
+
+        </form>
+
+        <p class="text-slate-300 mt-4">
+  Savings:
+  <span class="text-cyan-400 font-bold">
+    ₹ {{ '%.2f'|format(savings) }}
+  </span>
+</p>
+
+      </div>
+
+
+      <!-- LOGOUT -->
+      <div class="mt-10">
       <!-- LOGOUT -->
       <div class="mt-10">
 

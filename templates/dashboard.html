@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <title>Budget Tracker</title>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              DEFAULT: "#38bdf8"
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Chart JS -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+
+  <!-- NAVBAR -->
+  <nav class="border-b border-slate-800 bg-slate-900/70 backdrop-blur sticky top-0 z-50">
+
+    <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+
+      <div>
+        <h1 class="text-2xl font-bold text-cyan-400">
+          Budget Tracker
+        </h1>
+
+        <p class="text-xs text-slate-400">
+          Track your daily expenses smartly
+        </p>
+      </div>
+
+      <div class="flex items-center gap-3">
+
+  <!-- USER CARD -->
+  <div class="hidden sm:flex items-center gap-3 bg-slate-800 px-4 py-2 rounded-2xl border border-slate-700">
+
+    <div class="w-10 h-10 rounded-full bg-cyan-500 flex items-center justify-center font-bold text-slate-950">
+      {{ session.username[0]|upper }}
+    </div>
+
+    <div>
+      <p class="text-sm font-semibold">
+        {{ session.username }}
+      </p>
+
+      <p class="text-xs text-slate-400">
+        Active Session
+      </p>
+    </div>
+
+  </div>
+
+  <!-- EXPENSE COUNT -->
+<div class="hidden md:flex items-center px-4 py-2 rounded-xl bg-slate-800 border border-slate-700">
+
+  <span class="text-sm text-slate-300">
+    Expenses:
+  </span>
+
+  <span class="ml-2 font-bold text-cyan-400">
+    {{ expense_count }}
+  </span>
+
+</div>
+
+  <!-- PROFILE BUTTON -->
+  <a
+    href="{{ url_for('profile') }}"
+    class="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 transition"
+  >
+    Profile
+  </a>
+   <!-- NAV LINKS -->
+<a
+  href="{{ url_for('dashboard') }}"
+  class="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 transition"
+>
+  Dashboard
+</a>
+
+<a
+  href="{{ url_for('expenses') }}"
+  class="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 transition"
+>
+  Expenses
+</a>
+<a
+  href="{{ url_for('charts') }}"
+  class="px-4 py-2 rounded-xl bg-slate-800 border border-slate-700 hover:bg-slate-700 transition"
+>
+  Charts
+</a>
+
+
+
+  <!-- LOGOUT -->
+  <a
+    href="{{ url_for('logout') }}"
+    class="px-4 py-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 hover:bg-rose-500/20 transition"
+  >
+    Logout
+  </a>
+
+</div>
+
+    </div>
+
+  </nav>
+
+
+  <!-- FLASH MESSAGES -->
+  <div class="max-w-7xl mx-auto px-4 mt-4">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+
+    {% for category, message in messages %}
+
+    <div
+      class="mb-3 px-4 py-3 rounded-xl border 
+      {% if category == 'success' %}
+      bg-emerald-500/10 border-emerald-500/20 text-emerald-300
+      {% else %}
+      bg-rose-500/10 border-rose-500/20 text-rose-300
+      {% endif %}">
+
+      {{ message }}
+
+    </div>
+
+    {% endfor %}
+    {% endif %}
+    {% endwith %}
+
+  </div>
+
+
+  <main class="max-w-7xl mx-auto px-4 py-6">
+
+    <!-- TOP -->
+    <div class="mb-6">
+      <h2 class="text-3xl font-bold">
+        Dashboard
+      </h2>
+
+      <p class="text-slate-400 mt-1">
+        Manage your spending with beautiful analytics.
+      </p>
+    </div>
+
+    {% if income_alert %}
+
+<div class="mb-6 p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-300 font-semibold">
+
+  {{ income_alert }}
+
+</div>
+
+{% endif %}
+<!-- STATS -->
+<section class="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+
+  <!-- TOTAL -->
+  <div class="rounded-3xl bg-slate-900 border border-slate-800 p-5">
+    <p class="text-slate-400 text-sm mb-2">
+      Total Expenses
+    </p>
+
+    <h3 class="text-3xl font-bold text-cyan-400">
+      ₹ {{ '%.2f'|format(total or 0) }}
+    </h3>
+  </div>
+
+  
+  <!-- MONTHLY SPENDING -->
+<div class="rounded-3xl bg-slate-900 border border-slate-800 p-5">
+  
+  <p class="text-slate-400 text-sm mb-2">
+    This Month
+  </p>
+
+  <h3 class="text-3xl font-bold text-emerald-400">
+    ₹ {{ '%.2f'|format(month_total or 0) }}
+  </h3>
+
+</div>
+
+<!-- MONTHLY INCOME -->
+<div class="rounded-3xl bg-slate-900 border border-slate-800 p-5">
+
+  <p class="text-slate-400 text-sm mb-2">
+    Monthly Income
+  </p>
+
+  <h3 class="text-3xl font-bold text-yellow-400">
+    ₹ {{ '%.2f'|format(user.monthly_income or 0) }}
+  </h3>
+
+</div>
+  <!-- SAVINGS -->
+<div class="rounded-3xl bg-slate-900 border border-slate-800 p-5">
+
+  <p class="text-slate-400 text-sm mb-2">
+    Savings
+  </p>
+
+  <h3 class="text-3xl font-bold text-rose-400">
+    ₹ {{ '%.2f'|format(savings or 0) }}
+  </h3>
+
+</div>
+
+</section>
+
+    <!-- RECENT TRANSACTIONS -->
+<section class="mt-6 rounded-3xl bg-slate-900 border border-slate-800 p-5">
+
+  <div class="flex items-center justify-between mb-4">
+
+    <h3 class="text-xl font-semibold">
+      Recent Transactions
+    </h3>
+
+    <span class="text-xs text-slate-500">
+      Latest 5 expenses
+    </span>
+
+  </div>
+
+  <div class="space-y-3">
+
+    {% if recent_expenses %}
+
+    {% for e in recent_expenses %}
+
+    <div class="flex items-center justify-between rounded-2xl bg-slate-800/40 border border-slate-800 px-4 py-3">
+
+      <div>
+        <p class="font-medium text-slate-200">
+          {{ e.description }}
+        </p>
+
+        <p class="text-xs text-slate-500">
+          {{ e.Category }} •
+          {{ e.Date.strftime("%d %b %Y") }}
+        </p>
+      </div>
+
+      <div class="text-cyan-400 font-bold">
+        ₹ {{ '%.2f'|format(e.Amount) }}
+      </div>
+
+    </div>
+
+    {% endfor %}
+
+    {% else %}
+
+    <p class="text-slate-500 text-sm">
+      No recent transactions
+    </p>
+
+    {% endif %}
+
+  </div>
+
+</section>
+
+    
+
+  </main>
+
+
+  <!-- FOOTER -->
+<footer class="mt-10 border-t border-slate-800">
+
+  <div class="max-w-7xl mx-auto px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+
+    <p class="text-slate-500 text-sm">
+      © 2026 Budget Tracker • Built with Flask & Tailwind CSS
+    </p>
+
+    <p class="text-slate-600 text-xs">
+      Track smart. Spend smarter.
+    </p>
+
+  </div>
+
+</footer>
+
+</body>
+
+</html>

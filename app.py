@@ -87,6 +87,10 @@ class User(db.Model):
         db.String(200),
         nullable=False
     )
+    monthly_income = db.Column(
+        db.Float,
+        default=0
+    )
 
 
 # =========================
@@ -137,6 +141,16 @@ def parse_date_or_none(s: str):
 
 @app.route("/")
 def index():
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    return redirect(
+        url_for("dashboard")
+    )
+
+@app.route("/dashboard")
+def dashboard():
 
     # LOGIN PROTECTION
     if "user_id" not in session:
@@ -242,9 +256,43 @@ def index():
             for e in expenses
             if e.Date.month == current_month
             and e.Date.year == current_year
-        ),2
+        ),
+        2
     )
 
+    # INCOME ALERT
+    # INCOME ALERT
+    user = User.query.get(
+        session["user_id"]
+    )
+
+    income_alert = None
+
+    # SAVINGS
+    savings = 0
+
+    if user:
+        savings = user.monthly_income - month_total
+
+    if user and user.monthly_income > 0:
+
+        percent = (
+            month_total /
+            user.monthly_income
+        ) * 100
+
+        if percent >= 100:
+
+            income_alert = (
+                "⚠ Monthly expenses exceeded income!"
+            )
+
+        elif percent >= 80:
+
+            income_alert = (
+                "⚠ Expenses reached 80% of income."
+            )
+            
     # PIE CHART
     cat_q = db.session.query(
         Expense.Category,
@@ -280,7 +328,7 @@ def index():
         round(float(s or 0), 2)
         for _, s in cat_rows
     ]
-
+    
     # BAR CHART
     day_q = db.session.query(
         Expense.Date,
@@ -321,7 +369,11 @@ def index():
     ]
 
     return render_template(
-        "index.html",
+    "dashboard.html",
+
+        user=user,
+
+        savings=savings,
 
         expense_count=expense_count,
 
@@ -351,7 +403,145 @@ def index():
 
         day_labels=day_labels,
 
-        day_values=day_values
+        day_values=day_values,
+
+        income_alert=income_alert,
+    )
+    
+@app.route("/expenses")
+def expenses():
+
+    if "user_id" not in session:
+
+        flash(
+            "Please login first",
+            "error"
+        )
+
+        return redirect(
+            url_for("login")
+        )
+
+    # FILTER VALUES
+    start_str = (
+        request.args.get("start") or ""
+    ).strip()
+
+    end_str = (
+        request.args.get("end") or ""
+    ).strip()
+
+    selected_category = (
+        request.args.get("Category") or ""
+    ).strip()
+
+    search = (
+        request.args.get("search") or ""
+    ).strip()
+
+    start_date = parse_date_or_none(start_str)
+    end_date = parse_date_or_none(end_str)
+
+    q = Expense.query.filter_by(
+        user_id=session["user_id"]
+    )
+
+    if start_date:
+        q = q.filter(Expense.Date >= start_date)
+
+    if end_date:
+        q = q.filter(Expense.Date <= end_date)
+
+    if selected_category:
+        q = q.filter(Expense.Category == selected_category)
+
+    if search:
+        q = q.filter(
+            Expense.description.ilike(f"%{search}%")
+        )
+
+    # ✅ TOTAL COUNT (ALL MATCHED DATA)
+    expense_count = q.count()
+
+    # ✅ GET ONLY RECENT 5 (DO NOT USE expenses[:5])
+    expenses = q.order_by(
+        Expense.Date.desc(),
+        Expense.id.desc()
+    ).limit(5).all()
+
+    total = round(
+        sum(e.Amount for e in expenses),
+        2
+    )
+
+    return render_template(
+        "expenses.html",
+
+        expenses=expenses,
+
+        expense_count=expense_count,
+
+        total=total,
+
+        categories=CATEGORIES,
+
+        today=date.today().isoformat(),
+
+        start_str=start_str,
+
+        end_str=end_str,
+
+        selected_category=selected_category,
+
+        search=search
+    )
+    
+@app.route("/charts")
+def charts():
+
+    if "user_id" not in session:
+        flash("Please login first", "error")
+        return redirect(url_for("login"))
+
+    from sqlalchemy import func
+
+    category_data = db.session.query(
+        Expense.Category,
+        func.sum(Expense.Amount)
+    ).filter_by(
+        user_id=session["user_id"]
+    ).group_by(
+        Expense.Category
+    ).all()
+
+    cat_labels = [c[0] for c in category_data]
+    cat_values = [float(c[1]) for c in category_data]
+
+    daily_data = db.session.query(
+        func.strftime('%Y-%m-%d', Expense.Date),
+        func.sum(Expense.Amount)
+    ).filter_by(
+        user_id=session["user_id"]
+    ).group_by(
+        func.strftime('%Y-%m-%d', Expense.Date)
+    ).order_by(
+        func.strftime('%Y-%m-%d', Expense.Date)
+    ).all()
+
+    day_labels = [d[0] for d in daily_data]
+    day_values = [float(d[1]) for d in daily_data]
+    
+    expense_count = Expense.query.filter_by(
+        user_id=session["user_id"]
+    ).count()
+
+    return render_template(
+        "charts.html",
+        cat_labels=cat_labels,
+        cat_values=cat_values,
+        day_labels=day_labels,
+        day_values=day_values,
+        expense_count=expense_count
     )
 
 
@@ -898,11 +1088,65 @@ def profile():
         user_id=session["user_id"]
     ).count()
 
+    current_month = date.today().month
+    current_year = date.today().year
+
+    month_total = db.session.query(
+        func.sum(Expense.Amount)
+    ).filter(
+        Expense.user_id == session["user_id"],
+        func.strftime('%m', Expense.Date) == f"{current_month:02d}",
+        func.strftime('%Y', Expense.Date) == str(current_year)
+    ).scalar() or 0
+
+    savings = user.monthly_income - month_total
+
     return render_template(
         "profile.html",
         user=user,
         total_expenses=total_expenses,
-        total_transactions=total_transactions
+        total_transactions=total_transactions,
+        savings=savings
+    )
+
+
+@app.route("/update_income", methods=["POST"])
+def update_income():
+
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    income = request.form.get("income")
+
+    try:
+        income = float(income)
+
+        if income < 0:
+            raise ValueError
+
+    except:
+        flash(
+            "Invalid income amount",
+            "error"
+        )
+
+        return redirect(url_for("profile"))
+
+    user = User.query.get(
+        session["user_id"]
+    )
+
+    user.monthly_income = income
+
+    db.session.commit()
+
+    flash(
+        "Income updated successfully",
+        "success"
+    )
+
+    return redirect(
+        url_for("profile")
     )
 
 # =========================
